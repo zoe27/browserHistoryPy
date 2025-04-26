@@ -1,0 +1,14 @@
+# Web Framework
+Flask==2.0.0
+
+# Vector Search & Embeddings
+sentence-transformers==2.2.0
+faiss-cpu==1.7.0
+numpy==1.21.0
+
+# Web Scraping
+selenium==4.31.0
+webdriver-manager==3.8.0
+
+# Logging and Utilities
+python-json-logger==2.0.0
