@@ -55,3 +55,4 @@ Icon
 logs/
 
 src/history_content.json
+src/history_copy.db

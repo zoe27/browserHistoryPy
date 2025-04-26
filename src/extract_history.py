@@ -8,7 +8,11 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
+# This file contains functions and logic to extract and process browsing history
+# from the Chrome browser's SQLite database, including fetching page content
+# and saving processed data to a JSON file.
 # Configure logging
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -103,7 +107,65 @@ def main():
     output_file = './history_content.json'
     batch_size = 10
     page_size = 100
+    processed_count = 0
+    start_time = time.time()
 
+    processed_urls = set()
+
+    if os.path.exists(output_file):
+        with open(output_file, 'r') as f:
+            existing_data = json.load(f)
+            processed_urls.update(item['url'] for item in existing_data)
+            logger.info(f'Found {len(processed_urls)} previously processed URLs')
+
+    db = sqlite3.connect(temp_copy)
+    cursor = db.cursor()
+
+    cursor.execute('SELECT COUNT(*) FROM urls')
+    total_count = cursor.fetchone()[0]
+    total_pages = (total_count + page_size - 1) // page_size
+
+    for page in range(total_pages):
+        offset = page * page_size
+        percentage = (processed_count / total_count) * 100 if total_count > 0 else 0
+        logger.info(f'Progress: {processed_count}/{total_count} ({percentage:.1f}%) - Page {page + 1}/{total_pages}')
+
+        cursor.execute('''
+            SELECT url, title, last_visit_time
+            FROM urls
+            ORDER BY last_visit_time DESC
+            LIMIT ? OFFSET ?
+        ''', (page_size, offset))
+
+        class HistoryRow:
+            def __init__(self, url, title, last_visit_time):
+                self.url = url
+                self.title = title
+                self.last_visit_time = last_visit_time
+
+        rows = [HistoryRow(url, title, last_visit_time)
+                for url, title, last_visit_time in cursor.fetchall()]
+
+        rows = [row for row in rows if row.url not in processed_urls]
+
+        if rows:
+            process_batch(rows, output_file, batch_size)
+            processed_count += len(rows)
+            processed_urls.update(row.url for row in rows)
+
+    db.close()
+    os.remove(temp_copy)
+
+    final_percentage = (processed_count / total_count) * 100 if total_count > 0 else 0
+    logger.info(f'✅ Processing completed: {processed_count}/{total_count} ({final_percentage:.1f}%)')
+    logger.info(f'Total time: {time.time() - start_time:.2f}s')
+
+
+def resume_processing():
+    output_file = './history_content.json'
+    batch_size = 10
+    page_size = 100
+    processed_count = 0
     start_time = time.time()
 
     # Set to track processed URLs
@@ -114,6 +176,7 @@ def main():
         with open(output_file, 'r') as f:
             existing_data = json.load(f)
             processed_urls.update(item['url'] for item in existing_data)
+            logger.info(f'Found {len(processed_urls)} previously processed URLs')
 
     # Connect to database
     db = sqlite3.connect(temp_copy)
@@ -123,21 +186,19 @@ def main():
     cursor.execute('SELECT COUNT(*) FROM urls')
     total_count = cursor.fetchone()[0]
     total_pages = (total_count + page_size - 1) // page_size
-    logger.info(f'Total history items: {total_count}, Pages: {total_pages}')
 
     for page in range(total_pages):
         offset = page * page_size
-        logger.info(f'Processing page {page + 1}/{total_pages} (offset: {offset})')
+        percentage = (processed_count / total_count) * 100 if total_count > 0 else 0
+        logger.info(f'Progress: {processed_count}/{total_count} ({percentage:.1f}%) - Page {page + 1}/{total_pages}')
 
-        # Get records for current page
         cursor.execute('''
-            SELECT url, title, last_visit_time 
-            FROM urls 
-            ORDER BY last_visit_time DESC 
+            SELECT url, title, last_visit_time
+            FROM urls
+            ORDER BY last_visit_time DESC
             LIMIT ? OFFSET ?
         ''', (page_size, offset))
 
-        # Define history record type
         class HistoryRow:
             def __init__(self, url, title, last_visit_time):
                 self.url = url
@@ -150,16 +211,19 @@ def main():
         # Filter out already processed URLs
         rows = [row for row in rows if row.url not in processed_urls]
 
-        logger.info(f'Found {len(rows)} new items in current page')
-        process_batch(rows, output_file, batch_size)
-
-        # Add processed URLs to the set
-        processed_urls.update(row.url for row in rows)
+        if rows:
+            process_batch(rows, output_file, batch_size)
+            processed_count += len(rows)
+            processed_urls.update(row.url for row in rows)
 
     db.close()
     os.remove(temp_copy)
 
-    logger.info(f'✅ Total processing time: {time.time() - start_time:.2f}s')
+    final_percentage = (processed_count / total_count) * 100 if total_count > 0 else 0
+    logger.info(f'✅ Resume completed: {processed_count}/{total_count} ({final_percentage:.1f}%)')
+    logger.info(f'Total time: {time.time() - start_time:.2f}s')
+
+
 
 
 if __name__ == "__main__":
